@@ -4,7 +4,7 @@ set -e
 echo "JakeBot setup starting..."
 
 # 1. Update system
-sudo apt update
+# sudo apt update
 
 # 2. Install Node.js + npm (Ubuntu repo version is OK to start)
 sudo apt install -y nodejs npm
