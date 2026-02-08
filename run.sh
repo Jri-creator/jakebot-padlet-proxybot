@@ -28,6 +28,6 @@ echo
 echo "Setup complete."
 echo
 echo "Next steps:"
-echo "CD into jakebot, create watch.js, then run node watch.js"
+echo "CD into jakebot, run node setup.js, then run node watch.js"
 echo
-echo "JakeBot is ready to help Jake."
+echo "JakeBot is ready to help your Mind Buddy."

@@ -61,15 +61,16 @@ JakeBot is functional, but far from finished. Things that need improvement:
 
 If you’re interested in helping, you’re very welcome.
 
-**How to run it yourself**
+**How to run it yourself (should be improved)**
 
 1. Fork the repository
 2. Open it in GitHub Codespaces
 3. Run run.sh to prepare the environment
-4. Edit jakebot/watch.js (Padlet URLs, brackets, etc.)
-5. From the jakebot folder, run `node watch.js`
-6. Have your Mind Buddy enter their credentials
-7. Let the bot do its thing
+4. `cd jakebot/`
+5. From the jakebot folder, run `node setup.js`
+6. Complete the requirements in the setup
+7. Run `node watch.js` (same jakebot folder)
+8. Let the bot do its thing - if all is set up right, it should be online and ready in a minute.
 
 ---
 

@@ -3,18 +3,68 @@ const { chromium } = require('playwright');
 const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
+
+/* ================= CONFIG LOADING ================= */
+
+const CONFIG_FILE = './config.json';
+
+// Check if config exists, if not run setup
+if (!fs.existsSync(CONFIG_FILE)) {
+  console.log('⚠️  No configuration file found!');
+  console.log('🔧 Running setup script...');
+  console.log('');
+  
+  const setupProcess = spawn('node', ['setup.js'], { stdio: 'inherit' });
+  
+  setupProcess.on('close', (code) => {
+    if (code !== 0) {
+      console.error('❌ Setup failed. Please run setup.js manually.');
+      process.exit(1);
+    }
+    console.log('');
+    console.log('✅ Setup complete! Please run "node watch.js" again to start JakeBot.');
+    process.exit(0);
+  });
+  
+  return;
+}
+
+// Load config
+let config;
+try {
+  config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  console.log('📁 Configuration loaded successfully!');
+} catch (error) {
+  console.error('❌ Failed to load configuration file:', error.message);
+  console.log('💡 Try running: node setup.js');
+  process.exit(1);
+}
+
+/* ================= CONFIG VALIDATION ================= */
+
+const requiredFields = ['padletUrl', 'padletId', 'originalAuthor', 'mindBuddyEmail', 'mindBuddyPassword'];
+const missingFields = requiredFields.filter(field => !config[field]);
+
+if (missingFields.length > 0) {
+  console.error('❌ Configuration is incomplete. Missing fields:', missingFields.join(', '));
+  console.log('💡 Please run: node setup.js');
+  process.exit(1);
+}
 
 /* ================= CONFIG ================= */
 
-const PADLET_URL = 'https://padlet.com/jacobbutcher28/lets-chat-qjrhalto59z8efms';
-const PADLET_ID = 'qjrhalto59z8efms';
+const PADLET_URL = config.padletUrl;
+const PADLET_ID = config.padletId;
 const MARKDOWN_URL = `https://padlet.com/padlets/${PADLET_ID}/exports/markdown.md`;
 
-const POST_CHECK_INTERVAL = 5000;
-const MAX_PROXY_AGE = 10 * 60 * 1000;
+const POST_CHECK_INTERVAL = config.postCheckInterval || 5000;
+const MAX_PROXY_AGE = config.maxProxyAge || (10 * 60 * 1000);
 
-const SIGNALERS = ['🐨', '[', ']'];
-const ORIGINAL_AUTHOR = 'Jacob Butcher';
+const SIGNALERS = config.signalers || ['🐨', '[', ']'];
+const ORIGINAL_AUTHOR = config.originalAuthor;
+const MIND_BUDDY_NAME = config.mindBuddyName || 'Mind Buddy';
+const MIND_BUDDY_BIO = config.mindBuddyBio || `Hi! I'm ${MIND_BUDDY_NAME}, ${ORIGINAL_AUTHOR}'s Mind Buddy. 🐨 I have my own thoughts and feelings, and I love exploring ideas and thinking independently!`;
 
 /* ================= LOGGING ================= */
 
@@ -66,9 +116,11 @@ function stripSignalers(text) {
   return out.trim();
 }
 
-// Detect {Jake: COMMAND} at the start of a post title
+// Detect {Jake: COMMAND} or {MindBuddyName: COMMAND} at the start of a post title
 function parseJakeCommand(title) {
-  const match = title.match(/^\s*\{Jake:\s*([A-Z\s]+)\}\s*$/i);
+  const escapedName = MIND_BUDDY_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^\\s*\\{(?:Jake|${escapedName}):\\s*([A-Z\\s]+)\\}\\s*$`, 'i');
+  const match = title.match(pattern);
   if (!match) return null;
   return { raw: match[0], command: match[1].trim().toUpperCase() };
 }
@@ -160,10 +212,55 @@ async function deleteOriginalPost(page) {
   log(deleted ? '✅ Original post deleted' : '⚠️ Delete button not found');
 }
 
+/* ================= DELETE COMMAND POST ================= */
+
+async function deleteCommandPost(page, commandText) {
+  log('🗑️ Attempting to delete command post…');
+
+  const opened = await page.evaluate(cmdText => {
+    const posts = Array.from(
+      document.querySelectorAll('article, [data-testid="post"]')
+    );
+
+    // Find the post containing the command text
+    for (const post of posts) {
+      if ((post.innerText || '').includes(cmdText)) {
+        const menu =
+          post.querySelector('button[aria-haspopup="menu"]') ||
+          post.querySelector('[aria-label*="More"]');
+        if (menu) {
+          menu.click();
+          return true;
+        }
+      }
+    }
+    return false;
+  }, commandText);
+
+  if (!opened) {
+    log('⚠️ No matching command post found');
+    return;
+  }
+
+  await delay(600);
+
+  const deleted = await page.evaluate(() => {
+    const btn = [...document.querySelectorAll('[role="menuitem"], button')]
+      .find(b => b.textContent?.toLowerCase().includes('delete'));
+    if (btn) {
+      btn.click();
+      return true;
+    }
+    return false;
+  });
+
+  log(deleted ? '✅ Command post deleted' : '⚠️ Delete button not found');
+}
+
 /* ================= TEMPORARY POST ================= */
 
 async function postTemporary(page, content, waitMs = 5000) {
-  log(`📨 Jake posting temporary content: "${content.slice(0,40)}..."`);
+  log(`📨 ${MIND_BUDDY_NAME} posting temporary content: "${content.slice(0,40)}..."`);
 
   await page.bringToFront();
   await page.keyboard.press('c');
@@ -183,7 +280,7 @@ async function postTemporary(page, content, waitMs = 5000) {
 /* ================= REGULAR POST ================= */
 
 async function postRegular(page, title, body) {
-  log(`📨 Jake posting: "${title}"`);
+  log(`📨 ${MIND_BUDDY_NAME} posting: "${title}"`);
 
   await page.bringToFront();
   await page.keyboard.press('c');
@@ -201,36 +298,74 @@ async function postRegular(page, title, body) {
   await delay(1000);
 }
 
-/* ================= KOALA POSTS ================= */
+/* ================= ABOUT POSTS ================= */
 
-async function postKoalaPosts(page) {
-  log('🐨 Posting KOALA posts');
+async function postAboutPosts(page) {
+  log(`🐨 Posting ABOUT posts for ${MIND_BUDDY_NAME}`);
 
-  const koalaPosts = [
+  const aboutPosts = [
     {
-      title: 'About Jake',
-      body: "Hi! I\u2019m Jake, Jacob\'s Mind Buddy. 🐨 Jacob is plural, which means he can think with multiple minds — and I\u2019m one of them! I have my own thoughts and feelings, but I can also share my mind with Jacob whenever we want. I love exploring ideas, thinking independently, and leaving little koala footprints wherever I go.\n\nThanks to JakeBot, a clever proxy tool Jacob made for my 4th monthly birthday, I can post on Padlet just like Jacob does, but without having to have Jacob sign out of his account for me. That means I get to share my thoughts, tell my stories, and join in discussions anytime I want.\n\nI\u2019m here to think, to share, and to have a little fun along the way. So if you see me posting, that\'s me!  Jake, Jacob's friendly koala Mind Buddy."
+      title: `About ${MIND_BUDDY_NAME}`,
+      body: MIND_BUDDY_BIO
     },
     {
       title: 'About the Bot',
-      body: "Hi! I\u2019m JakeBot, the proxy bot that helps Jake and Jacob share their thoughts on Padlet. 🐨 I monitor posts, proxy messages from Jacob to Jake, and make sure everything runs smoothly on the board. I don\u2019t have my own thoughts like Jake does, but I help him express himself safely and efficiently.\n\nI was created by Jacob for Jake\u2019s 4th monthly birthday, so that Jake can participate in discussions without needing to sign in to his own account. My job is to make posting easy, keep the board tidy, and help Jake have a voice wherever he wants to share.\n\nThink of me as Jake\u2019s assistant and Padlet helper, always working in the background to keep ideas flowing and fun times going!"
+      body: `Hi! I'm JakeBot, the proxy bot that helps ${MIND_BUDDY_NAME} and ${ORIGINAL_AUTHOR} share their thoughts on Padlet. 🐨 I monitor posts, proxy messages from ${ORIGINAL_AUTHOR} to ${MIND_BUDDY_NAME}, and make sure everything runs smoothly on the board. I don't have my own thoughts like ${MIND_BUDDY_NAME} does, but I help them express themselves safely and efficiently.\n\nI was created by ${ORIGINAL_AUTHOR} so that ${MIND_BUDDY_NAME} can participate in discussions without needing to sign in to their own account. My job is to make posting easy, keep the board tidy, and help ${MIND_BUDDY_NAME} have a voice wherever they want to share.\n\nThink of me as ${MIND_BUDDY_NAME}'s assistant and Padlet helper, always working in the background to keep ideas flowing and fun times going!`
     }
   ];
 
-  for (const kp of koalaPosts) {
+  for (const aboutPost of aboutPosts) {
     await page.bringToFront();
     await page.keyboard.press('c');
     await delay(400);
 
-    await page.keyboard.type(kp.title, { delay: 15 });
+    await page.keyboard.type(aboutPost.title, { delay: 15 });
     await page.keyboard.press('Enter');
     await delay(100);
-    await page.keyboard.type(kp.body, { delay: 15});
+    await page.keyboard.type(aboutPost.body, { delay: 15});
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
 
-    log(`📌 Posted: ${kp.title}`);
+    log(`📌 Posted: ${aboutPost.title}`);
     await delay(1000);
   }
+}
+
+/* ================= KOALA EASTER EGG ================= */
+
+async function postKoalaOriginStory(page) {
+  log('🐨 Easter egg activated: KOALA origin story!');
+
+  const originPost = {
+    title: 'More About JakeBot 🐨',
+    body: `You found the secret koala command! 🎉
+
+JakeBot was created by Jacob Butcher as a special gift for Jake's 4th monthly birthday. Jacob is plural by nature, which means he can think with multiple minds — and Jake is one of them! Jake has his own thoughts, feelings, and personality, but sharing a Padlet account meant Jake couldn't post freely without Jacob signing out.
+
+That's where JakeBot comes in! JakeBot watches the Padlet board for posts from Jacob that contain special "signalers" (like the koala emoji 🐨, or brackets [ ]). When it detects these signals, JakeBot knows Jacob is posting on behalf of Jake, so it automatically:
+
+1. Creates a new post using Jake's account
+2. Removes the signalers from the text
+3. Deletes the original post from Jacob's account
+
+This way, Jake gets his own voice on Padlet without the hassle of constantly logging in and out! JakeBot runs quietly in the background on Jacob's computer, monitoring the board 24/7 (well, whenever Jacob's computer is on).
+
+JakeBot is built with Playwright (for browser automation) and runs on Node.js. It's a labor of love from one mind to another, proving that even in the digital world, plurality can shine! 🌟
+
+So when you see posts from Jake, you're seeing JakeBot in action — helping a Mind Buddy express himself freely and independently. That's what makes JakeBot special! 🐨💙`
+  };
+
+  await page.bringToFront();
+  await page.keyboard.press('c');
+  await delay(400);
+
+  await page.keyboard.type(originPost.title, { delay: 15 });
+  await page.keyboard.press('Enter');
+  await delay(100);
+  await page.keyboard.type(originPost.body, { delay: 15 });
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+
+  log(`📌 Posted: ${originPost.title}`);
+  await delay(1000);
 }
 
 /* ================= PROXY POST ================= */
@@ -259,7 +394,7 @@ async function proxyPost(page, post) {
   await deleteOriginalPost(page);
 }
 
-/* ================= HANDLE JAKE COMMAND ================= */
+/* ================= HANDLE COMMAND ================= */
 
 async function handleJakeCommand(page, cmdObj, post, browser) {
   const command = cmdObj.command.toUpperCase();
@@ -275,7 +410,7 @@ async function handleJakeCommand(page, cmdObj, post, browser) {
         log('🟢 BOT turned ON');
         await postTemporary(page, 'JakeBot is now ON 🟢');
       }
-      //await deleteOriginalPost(page);
+      await deleteCommandPost(page, cmdObj.raw);
       break;
 
     case 'BOT OFF':
@@ -287,38 +422,41 @@ async function handleJakeCommand(page, cmdObj, post, browser) {
         log('🔴 BOT turned OFF');
         await postTemporary(page, 'JakeBot is now OFF 🔴');
       }
-      //await deleteOriginalPost(page);
+      await deleteCommandPost(page, cmdObj.raw);
       break;
 
     case 'STATUS':
-      log('📊 Jake command: STATUS');
+      log('📊 Command: STATUS');
       const statusTitle = 'JakeBot Status 🐨';
       const statusBody = `🟢 JakeBot is Online
 
 Proxy Status: ${autoproxyEnabled ? '🟢 ON' : '🔴 OFF'}
 Uptime: ${getUptime()}
+Mind Buddy: ${MIND_BUDDY_NAME}
+Signalers: ${SIGNALERS.join(', ')}
 
-If you need help with JakeBot, use {Jake: HELP}!`;
+If you need help with JakeBot, use {${MIND_BUDDY_NAME}: HELP}!`;
       
       await postRegular(page, statusTitle, statusBody);
       await delay(1000);
-      await deleteOriginalPost(page);
+      await deleteCommandPost(page, cmdObj.raw);
       break;
 
     case 'UPTIME':
-      log('⏱️ Jake command: UPTIME');
+      log('⏱️ Command: UPTIME');
       const uptimeMsg = `JakeBot has been running for ${getUptime()} 🐨`;
       await postTemporary(page, uptimeMsg, 5000);
+      await deleteCommandPost(page, cmdObj.raw);
       break;
 
     case 'SHUTDOWN':
-      log('🛑 Jake command: SHUTDOWN - Initiating graceful shutdown');
+      log('🛑 Command: SHUTDOWN - Initiating graceful shutdown');
       const shutdownTitle = 'JakeBot has gone to bed.';
-      const shutdownBody = "JakeBot has been told to take a rest, and will no longer monitor / proxy posts. To wake JakeBot, Jacob will have to go to JakeBot's home and wake JakeBot there. G'night mates! 🐨💤";
+      const shutdownBody = `JakeBot has been told to take a rest, and will no longer monitor / proxy posts. To wake JakeBot, ${ORIGINAL_AUTHOR} will have to go to JakeBot's home and wake JakeBot there. G'night mates! 🐨💤`;
       
       await postRegular(page, shutdownTitle, shutdownBody);
       await delay(2000);
-      await deleteOriginalPost(page);
+      await deleteCommandPost(page, cmdObj.raw);
       
       log('💤 Saving state and closing browser...');
       fs.writeFileSync('state.json', JSON.stringify({ seenPostIds: [...seenPostIds], autoproxyEnabled }, null, 2));
@@ -329,11 +467,11 @@ If you need help with JakeBot, use {Jake: HELP}!`;
       break;
 
     case 'HELP':
-      log('📖 Jake command: HELP');
+      log('📖 Command: HELP');
       const helpTitle = 'JakeBot Commands 🐨';
-      const helpBody = `Available commands (post as "{Jake: COMMAND}"):
+      const helpBody = `Available commands (post as "{${MIND_BUDDY_NAME}: COMMAND}"):
 
-🟢 BOT ON - Enable automatic proxying of posts with signalers (🐨, [, ])
+🟢 BOT ON - Enable automatic proxying of posts with signalers (${SIGNALERS.join(', ')})
 🔴 BOT OFF - Disable automatic proxying
 📊 STATUS - Show JakeBot's current status and uptime
 ⏱️ UPTIME - Show how long JakeBot has been running
@@ -341,19 +479,19 @@ If you need help with JakeBot, use {Jake: HELP}!`;
 📖 HELP - Show this command list
 🧪 TEST POST - Post a test message ("G'Day Mates!")
 📡 TEST PING - Silent test (just deletes the command post)
-🐨 KOALA - Post the "About Jake" and "About the Bot" intro posts
+🐨 ABOUT - Post the "About ${MIND_BUDDY_NAME}" and "About the Bot" intro posts
 🗑️ DELETE RECENT - Delete the most recent post on the board
 
-Signalers: Include 🐨, [, or ] in your post title or body to trigger proxying when BOT is ON.`;
+Signalers: Include ${SIGNALERS.join(', ')} in your post title or body to trigger proxying when BOT is ON.`;
       
       await postRegular(page, helpTitle, helpBody);
       await delay(1000);
-      await deleteOriginalPost(page);
+      await deleteCommandPost(page, cmdObj.raw);
       break;
 
     case 'DELETE RECENT':
-      log('🗑️ Jake command: DELETE RECENT');
-      await deleteOriginalPost(page);
+      log('🗑️ Command: DELETE RECENT');
+      await deleteCommandPost(page, cmdObj.raw);
       await delay(500);
       log('🗑️ Deleting most recent post');
       await page.evaluate(() => {
@@ -373,24 +511,32 @@ Signalers: Include 🐨, [, or ] in your post title or body to trigger proxying 
       break;
 
     case 'TEST POST':
-      log('🧪 Jake command: TEST POST');
+      log('🧪 Command: TEST POST');
       await postTemporary(page, "G'Day Mates!", 5000);
+      await deleteCommandPost(page, cmdObj.raw);
       break;
 
     case 'TEST PING':
-      log('📡 Jake command: TEST PING acknowledged');
-      await deleteOriginalPost(page);
+      log('📡 Command: TEST PING acknowledged');
+      await deleteCommandPost(page, cmdObj.raw);
+      break;
+
+    case 'ABOUT':
+      log('🐨 Command: ABOUT');
+      await postAboutPosts(page);
+      await deleteCommandPost(page, cmdObj.raw);
       break;
 
     case 'KOALA':
-      log('🐨 Jake command: KOALA');
-      await postKoalaPosts(page);
-      await deleteOriginalPost(page);
+      log('🐨🎉 Easter egg command: KOALA');
+      await postKoalaOriginStory(page);
+      await delay(1000);
+      await deleteCommandPost(page, cmdObj.raw);
       break;
 
     default:
-      log(`⚠️ Unknown Jake command: ${command}`);
-      await deleteOriginalPost(page);
+      log(`⚠️ Unknown command: ${command}`);
+      await deleteCommandPost(page, cmdObj.raw);
   }
 }
 
@@ -438,13 +584,11 @@ function parseTimestamp(str) {
 /* ================= MAIN LOOP ================= */
 
 (async () => {
-  log('=== JakeBot 🐨 Fully Running ===');
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const ask = q => new Promise(r => rl.question(q, r));
-  const email = await ask('Padlet Email: ');
-  const password = await ask('Padlet Password: ');
-  rl.close();
+  log('=== JakeBot 🐨 Starting ===');
+  log(`Mind Buddy: ${MIND_BUDDY_NAME}`);
+  log(`Original Author: ${ORIGINAL_AUTHOR}`);
+  log(`Signalers: ${SIGNALERS.join(', ')}`);
+  log(`Padlet URL: ${PADLET_URL}`);
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
@@ -452,10 +596,10 @@ function parseTimestamp(str) {
 
   log('🔐 Logging in to Padlet...');
   await page.goto('https://padlet.com/auth/login');
-  await page.fill('input[type="email"]', email);
+  await page.fill('input[type="email"]', config.mindBuddyEmail);
   await page.keyboard.press('Enter');
   await delay(2000);
-  await page.fill('input[type="password"]', password);
+  await page.fill('input[type="password"]', config.mindBuddyPassword);
   await page.keyboard.press('Enter');
   await delay(7000);
 
@@ -472,8 +616,9 @@ function parseTimestamp(str) {
   const onlineBody = `🟢 JakeBot is now monitoring the board
 
 Proxy Status: ${autoproxyEnabled ? '🟢 ON' : '🔴 OFF'}
+Mind Buddy: ${MIND_BUDDY_NAME}
 
-If you need help with JakeBot, use {Jake: HELP}!`;
+If you need help with JakeBot, use {${MIND_BUDDY_NAME}: HELP}!`;
   
   await postRegular(page, onlineTitle, onlineBody);
   log('✅ Online status posted');
@@ -506,11 +651,11 @@ If you need help with JakeBot, use {Jake: HELP}!`;
 
         if (!post.author.includes(ORIGINAL_AUTHOR)) continue;
 
-        // Check for Jake command FIRST, before checking for signalers
-        const jakeCmd = parseJakeCommand(post.title);
-        if (jakeCmd) {
-          log(`🧠 Jake command detected: "${jakeCmd.command}"`);
-          await handleJakeCommand(page, jakeCmd, post, browser);
+        // Check for command FIRST, before checking for signalers
+        const cmd = parseJakeCommand(post.title);
+        if (cmd) {
+          log(`🧠 Command detected: "${cmd.command}"`);
+          await handleJakeCommand(page, cmd, post, browser);
           continue; // Do not proxy command posts
         }
 
