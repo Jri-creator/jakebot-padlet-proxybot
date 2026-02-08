@@ -1,2 +1,4 @@
 config-publicboard.json
 config.json
+state.json
+logs/
