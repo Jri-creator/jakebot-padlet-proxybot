@@ -3,17 +3,22 @@ set -e
 
 echo "JakeBot setup starting..."
 
+# 0. Get Rid of Codespaces' borked Yarn repo.
+sudo rm /etc/apt/sources.list.d/yarn.list
+
 # 1. Update system
-# sudo apt update
+sudo apt update
 
 # 2. Install Node.js + npm (Ubuntu repo version is OK to start)
 sudo apt install -y nodejs npm
 
-# 3. Create project directory if needed
-mkdir -p jakebot
+# 3. Create project directory if needed (let's not)
+# mkdir -p jakebot
+
+# Instead, just cd into it. It's going to exist anyway if the user properly cloned the repo.
 cd jakebot
 
-# 4. Initialize npm project if not present
+# 4. Initialize npm project if not present (we need this for Playwright and its browsers) (Although this should already be done if the user cloned the repo?)
 if [ ! -f package.json ]; then
   npm init -y
 fi
