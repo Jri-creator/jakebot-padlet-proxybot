@@ -29,6 +29,9 @@ npm install playwright
 # 6. Install Playwright browsers
 npx playwright install
 
+# 7. Dependencies for Playwright browsers is needed. (I knew I forgot something!)
+sudo npx playwright install-deps
+
 echo
 echo "Setup complete."
 echo
