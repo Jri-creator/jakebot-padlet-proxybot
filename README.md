@@ -81,15 +81,16 @@ JakeBot currently can:
 ## Getting JakeBot ready for your Padlet
 
 **Prerequisites:**
-- GitHub account
+- GitHub account (if you are using Codespaces)
 - Access to GitHub Codespaces (or a Linux environment)
-- Node.js (latest version recommended)
+- Node.js (Version 20 and higher - what works for Playwright works for this.)
 - Playwright
 - A Padlet account for your headmate/Mind Buddy
 
 **Note:** If you're using GitHub Codespaces, `run.sh` handles most of the technical setup automatically!
+Also, there's `runok.sh` for other Debian-based linux machines.
 
-**Steps:**
+**Steps: (for Github Codespaces)**
 
 1. Fork this repository
 2. Open it in GitHub Codespaces
