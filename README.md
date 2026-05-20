@@ -4,7 +4,7 @@
 
 **A Padlet Proxybot for Plurals Like Us!**
 
-> Status: This project is in live development. What you see here reflects active work and evolving snapshots. Development happens in GitHub Codespaces, and updates roll in as commits are pushed.
+> Status: This project is not being actively developed due to Mindforest usage. 
 
 ---
 
@@ -159,4 +159,4 @@ JakeBot is provided as-is for use by plural systems who need digital independenc
 ---
 
 # 🐨
-### Final note: This is an ongoing experiment. I actively develop in Codespaces, and each push represents a snapshot anyone can use or build on.
+### Final note: This is an ongoing experiment. I develop in Codespaces, and each push represents a snapshot anyone can use or build on.
